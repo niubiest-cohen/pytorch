@@ -531,7 +531,7 @@ def tuned_b2b_gemm(
     A.realize()
     B.realize()
     C.realize()
-    layout = FixedLayout(A.get_device(), A.get_dtype(), [A.shape[0], C.shape[1]])
+    layout = FixedLayout(A.get_device(), A.get_dtype(), [A.shape[0], C.shape[1]])  # type: ignore[index]
     subgraph_buffer = build_subgraph_buffer(
         [create_placeholder("inner_mm", A.get_dtype(), A.get_device())],
         subgraph,
@@ -666,9 +666,9 @@ def b2b_gemm_handler(match: Match, mat1: torch.fx.Node, mat2: torch.fx.Node) -> 
     graph, module = inner_mm.graph, inner_mm.graph.owning_module
 
     # construct the new (sub)graph
-    subgraph_node_list: List[
-        torch.fx.Node
-    ] = []  # ordered list of nodes used for node removal later
+    subgraph_node_list: List[torch.fx.Node] = (
+        []
+    )  # ordered list of nodes used for node removal later
     new_graph: torch.fx.Graph = torch.fx.Graph()
     node_remapping: Dict[torch.fx.Node, torch.fx.Node] = {}
     new_input_anchor: torch.fx.Node  # inner_mm, to be changed to an input node

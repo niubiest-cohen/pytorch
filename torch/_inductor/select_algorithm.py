@@ -1618,7 +1618,7 @@ class AlgorithmSelectorCache(PersistentCache):
                     map(
                         str,
                         V.graph.sizevars.size_hints(
-                            n.get_size(), fallback=config.unbacked_symint_fallback
+                            n.get_size(), fallback=config.unbacked_symint_fallback  # type: ignore[arg-type]
                         ),
                     )
                 )
@@ -1769,9 +1769,9 @@ def autotune_select_algorithm(*args, **kwargs):
         _ALGORITHM_SELECTOR_CACHE = AlgorithmSelectorCache()
 
     if "return_multi_template" not in kwargs:
-        kwargs[
-            "return_multi_template"
-        ] = torch._inductor.config.benchmark_epilogue_fusion
+        kwargs["return_multi_template"] = (
+            torch._inductor.config.benchmark_epilogue_fusion
+        )
 
     return _ALGORITHM_SELECTOR_CACHE(*args, **kwargs)
 
