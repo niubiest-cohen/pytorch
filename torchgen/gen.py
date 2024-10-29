@@ -2203,6 +2203,8 @@ def gen_source_files(
     per_operator_headers: bool,
     skip_dispatcher_op_registration: bool,
     update_aoti_c_shim: bool,
+    aoti_backends: set[DispatchKey],
+    aoti_extend: bool,
 ) -> None:
     extra_cuda_headers = """\
 #include <c10/cuda/CUDAGuard.h>
@@ -2379,7 +2381,7 @@ def gen_source_files(
                     structured_func_group_dict[func.structured_delegate] = func_group
                     break
 
-        if dispatch_key in (DispatchKey.CPU, DispatchKey.CUDA):
+        if dispatch_key in aoti_backends:
             fallbacks = {}
             for func in native_functions:
                 op_name = get_fallback_op_name(func)
@@ -2397,6 +2399,7 @@ def gen_source_files(
                 dispatch_key,
                 backend_indices,
                 header=True,
+                aoti_extend=aoti_extend,
                 includes="",
             )
             if update_aoti_c_shim:
@@ -2437,7 +2440,11 @@ codegen to generate the correct cpp call for this op. Contact AOTInductor team f
                 headers = []
                 for func in fallback_native_functions:
                     header = get_header_for_aoti(
-                        func, structured_func_group_dict, dispatch_key, backend_indices
+                        func,
+                        structured_func_group_dict,
+                        dispatch_key,
+                        backend_indices,
+                        aoti_extend=aoti_extend,
                     )
                     if header is not None:
                         headers.append(header)
@@ -2455,6 +2462,7 @@ codegen to generate the correct cpp call for this op. Contact AOTInductor team f
                     dispatch_key,
                     backend_indices,
                     header=False,
+                    aoti_extend=aoti_extend,
                     includes=headers_for_aoti() + "\n" + extra_headers,
                 ),
             )
@@ -2850,11 +2858,14 @@ def main() -> None:
         help="Update AOTInductor C shim after adding an entry to inductor_fallback_ops in torchgen/aoti/fallback_ops.py. "
         "WARNING: Do not use this unless you are sure what you are doing!!!",
     )
+    parser.add_argument(
+        "--aoti-extend",
+        action="store_true",
+        help="Update AOTInductor C shim after adding an entry to inductor_fallback_ops in torchgen/aoti/fallback_ops.py. "
+        "WARNING: Do not use this unless you are sure what you are doing!!!",
+    )
 
     options = parser.parse_args()
-
-    if options.backend_whitelist and str(DispatchKey.XPU) in options.backend_whitelist:
-        options.xpu = True
 
     selector = get_custom_build_selector(
         options.op_registration_whitelist,
@@ -2942,11 +2953,18 @@ def main() -> None:
         DispatchKey.CompositeExplicitAutogradNonFunctional,
         DispatchKey.Meta,
     }
+
+    aoti_backends = {
+        DispatchKey.CPU,
+        DispatchKey.CUDA,
+    }
+
     if options.mps:
         functions_keys.add(DispatchKey.MPS)
 
     if options.xpu:
         functions_keys.add(DispatchKey.XPU)
+        aoti_backends.add(DispatchKey.XPU)
 
     if options.backend_whitelist:
         dispatch_keys = [
@@ -2987,6 +3005,8 @@ def main() -> None:
             per_operator_headers=options.per_operator_headers,
             skip_dispatcher_op_registration=options.skip_dispatcher_op_registration,
             update_aoti_c_shim=options.update_aoti_c_shim,
+            aoti_backends=aoti_backends,
+            aoti_extend=options.aoti_extend,
         )
 
     if "headers" in options.generate:
