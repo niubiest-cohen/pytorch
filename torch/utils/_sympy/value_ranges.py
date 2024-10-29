@@ -501,6 +501,38 @@ class SymPyValueRangeAnalysis:
         return ValueRanges.coordinatewise_increasing_map(a, b, sympy.And)
 
     @staticmethod
+    def _bit_length(n):
+        return len(bin(n).lstrip("-0b"))
+
+    @staticmethod
+    def bitwise_and(a, b):
+        a, b = ValueRanges.wrap(a), ValueRanges.wrap(b)
+        lower = min(a.lower, b.lower)
+        if lower < 0 and lower != -int_oo:
+            # If both lower bounds are negative, then bits start like
+            # 1...10..., so the smallest possible value is 1...101...1.
+            # Thus, we need to find the next smallest power of 2 (inclusive).
+            lower = -(1 << SymPyValueRangeAnalysis._bit_length(-lower - 1))
+        else:
+            lower = 0
+        return ValueRanges(lower, max(a.upper, b.upper))
+
+    @staticmethod
+    def bitwise_or(a, b):
+        a, b = ValueRanges.wrap(a), ValueRanges.wrap(b)
+        upper = max(a.upper, b.upper)
+        if upper == 0:
+            upper = 0
+        elif upper > 0 and upper != int_oo:
+            # If both upper bounds are positive, then the largest
+            # possible value is 01...1, so we need to find
+            # next largest power of 2 (exclusive), minus 1
+            upper = (1 << SymPyValueRangeAnalysis._bit_length(upper)) - 1
+        elif upper < 0:
+            upper = -1
+        return ValueRanges(min(a.lower, b.lower), upper)
+
+    @staticmethod
     def eq(a, b):
         a = ValueRanges.wrap(a)
         b = ValueRanges.wrap(b)
@@ -1061,12 +1093,14 @@ def bound_sympy(
         "bound_sympy(%s)%s",
         expr,
         LazyString(
-            lambda: "\n"
-            + "\n".join(
-                f"  {k}: {r}" for k, r in ranges.items() if k in expr.free_symbols
+            lambda: (
+                "\n"
+                + "\n".join(
+                    f"  {k}: {r}" for k, r in ranges.items() if k in expr.free_symbols
+                )
+                if ranges
+                else ""
             )
-            if ranges
-            else ""
         ),
     )
     if isinstance(expr, sympy.Number):
