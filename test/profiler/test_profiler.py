@@ -25,6 +25,7 @@ import torch
 import torch.nn as nn
 import torch.optim
 import torch.utils.data
+from torch import _dynamo as torchdynamo
 from torch._C._profiler import _ExperimentalConfig, _ExtraFields_PyCall
 from torch.autograd.profiler import KinetoStepTracker, profile as _profile
 from torch.autograd.profiler_legacy import profile as _profile_legacy
@@ -61,6 +62,7 @@ from torch.testing._internal.common_utils import (
     IS_WINDOWS,
     parametrize,
     run_tests,
+    skipIfHpu,
     serialTest,
     skipIfTorchDynamo,
     TemporaryDirectoryName,
@@ -70,6 +72,7 @@ from torch.testing._internal.common_utils import (
     TEST_WITH_ROCM,
     TestCase,
 )
+from torch.utils._triton import has_triton
 
 
 # if tqdm is not shutdown properly, it will leave the monitor thread alive.
@@ -1687,7 +1690,7 @@ assert KinetoStepTracker.current_step() == initial_step + 2 * niters
                 ]
                 for e in op_events:
                     if e["name"] == "add_test_kwinputs":
-                        print(e["args"])
+                        # print(e["args"])
                         args = e["args"]
                         self.assertTrue("stream" in args)
                         self.assertTrue("grid" in args)
@@ -1715,7 +1718,7 @@ assert KinetoStepTracker.current_step() == initial_step + 2 * niters
                 ]
                 for e in op_events:
                     if e["name"] == "add_test_kwinputs":
-                        print(e["args"])
+                        # print(e["args"])
                         args = e["args"]
                         self.assertTrue("stream" not in args)
                         self.assertTrue("grid" not in args)
@@ -2080,6 +2083,84 @@ assert KinetoStepTracker.current_step() == initial_step + 2 * niters
             os._exit(0)
         else:
             os.waitpid(pid, 0)
+
+    @unittest.skipIf(IS_WINDOWS, "torch.compile does not support WINDOWS")
+    @unittest.skipIf(
+        sys.version_info >= (3, 12), "torch.compile is not supported on python 3.12+"
+    )
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA is required")
+    @unittest.skipIf(not has_triton(), "need triton to run")
+    @skipIfHpu
+    def test_pt2_triton_attributes(self):
+        from torch._inductor.codecache import code_hash
+        device = "cuda"
+
+        @torchdynamo.optimize("inductor")
+        def fn(a, b, c):
+            x = torch.nn.functional.linear(a, b)
+            x = x + c
+            return x.cos()
+
+        a, b, c = (torch.randn(4, 4, requires_grad=True).to(device) for _ in range(3))
+
+        inputs = [a, b, c]
+        with torch._inductor.config.patch(compile_threads=1):
+            fn(*inputs)
+
+        fp = tempfile.NamedTemporaryFile("w+t", suffix=".json", delete=False)
+        fp.close()
+
+        with profile(
+            activities=torch.profiler.supported_activities(),
+            record_shapes=True,
+            schedule=torch.profiler.schedule(
+                skip_first=3, wait=1, warmup=1, active=2, repeat=1
+            ),
+        ) as prof:
+            for idx in range(10):
+                with record_function(f"## LOOP {idx} ##"):
+                    fn(*inputs)
+                prof.step()
+
+        prof.export_chrome_trace(fp.name)
+        print("Trace written to {fp.name}")
+
+        triton_events = []
+        with open(fp.name) as f:
+            trace_json = json.load(f)
+            triton_events = [
+                event
+                for event in trace_json["traceEvents"]
+                if "kernel_backend" in event.get("args", {}).keys()
+            ]
+
+        # print(triton_events)
+        self.assertEqual(len(triton_events), 2)
+
+        def get_hash(kernel_file: str) -> str:
+            with open(kernel_file) as f:
+                kernel_src = f.read()
+            return code_hash(kernel_src.strip())
+
+        def check_triton_event(e) -> None:
+            args = e.get("args", {})
+            self.assertNotEqual(args, {}, msg=f"event = {e}")
+
+            self.assertEqual(args["kernel_backend"], "triton", msg=f"event = {e}")
+
+            self.assertTrue("stream" in args, msg=f"event = {e}")
+            self.assertTrue("grid" in args, msg=f"event = {e}")
+            self.assertTrue(args["grid"].startswith("grid"), msg=f"event = {e}")
+
+            self.assertTrue("kernel_file" in args, msg=f"event = {e}")
+            kernel_file = args["kernel_file"]
+            self.assertTrue(os.path.isfile(kernel_file), msg=f"event = {e}")
+
+            self.assertTrue("kernel_hash" in args, msg=f"event = {e}")
+            self.assertEqual(args["kernel_hash"], get_hash(kernel_file), msg=f"event = {e}")
+
+        for e in triton_events:
+            check_triton_event(e)
 
 
 class SimpleNet(nn.Module):
