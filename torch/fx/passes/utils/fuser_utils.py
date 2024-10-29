@@ -183,11 +183,8 @@ def fuse_as_graphmodule(
     # outs contain nodes in the new subgraph
     outs = tuple(output_mapping.values())
 
-    # Take care of the args of FX output node. If there's a single
-    # output then the output node args is like (output_single), else
-    # if there're multiple outputs then the output node args is like
-    # ((output_0, output_1, ...)).
-    subgraph.output(outs[0] if len(outs) == 1 else outs)
+    # always return a tuple, even if there is only one output
+    subgraph.output(outs)
 
     # lint to ensure correctness
     subgraph.lint()
