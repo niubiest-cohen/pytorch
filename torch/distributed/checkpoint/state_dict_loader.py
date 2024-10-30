@@ -179,8 +179,12 @@ def load(
                 continue
             elem = state_dict[key]
             if isinstance(elem, Stateful):
+                # If the state_dict is a Stateful object,
+                # DCP does an in-place load in the original state dict.
                 elem.load_state_dict(statetful_sd[key])
-            state_dict[key] = statetful_sd[key]
+            else:
+                # Otherwise, replace the state_dict with the loaded state_dict.
+                state_dict[key] = statetful_sd[key]
 
 
 def _load_state_dict(
