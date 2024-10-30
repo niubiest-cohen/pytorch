@@ -392,6 +392,6 @@ static void copy_kernel_cuda(TensorIterator& iter, bool non_blocking) {
   }
 }
 
-REGISTER_DISPATCH(copy_stub, &copy_kernel_cuda);
+REGISTER_DISPATCH(copy_stub, &copy_kernel_cuda)
 
 } // namespace at::native
