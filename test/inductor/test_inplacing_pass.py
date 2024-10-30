@@ -6,7 +6,7 @@ import torch
 import torch._inductor.config as inductor_config
 from functorch import make_fx
 from torch import Tensor
-from torch._dynamo.utils import counters
+from torch._dynamo.utils import ReinplaceCounters
 from torch._higher_order_ops.auto_functionalize import (
     auto_functionalized,
     auto_functionalized_v2,
@@ -31,11 +31,11 @@ device = GPU_TYPE
 
 
 def num_reinplacing_failures():
-    return counters["inductor"]["possibly_missed_reinplacing_opportunities"]
+    return ReinplaceCounters.get_total_missed()
 
 
 def miss_inplaced_bytes():
-    return counters["inductor"]["possibly_missed_reinplacing_bytes"]
+    return ReinplaceCounters.get_total_missed_bytes()
 
 
 @torch.library.custom_op("_reinplacing::sin", mutates_args={"result"})
