@@ -524,6 +524,7 @@ class PythonWrapperCodegen(CodeGen):
         self._meta_vars: Set[str] = set()
         self.multi_kernel_state = MultiKernelState()
         self.already_codegened_subgraphs: Set[str] = set()
+        self.allocated_workspaces: Dict[str, Any] = {}
 
         # intermediate tensor value printing utility
         self.debug_printer = DebugPrinterManager(
@@ -612,7 +613,14 @@ class PythonWrapperCodegen(CodeGen):
         import_str = f"""
             import triton
             import triton.language as tl
-            from {triton_heuristics.__name__} import grid, split_scan_grid, grid_combo_kernels, start_graph, end_graph
+            from {triton_heuristics.__name__} import (
+                grid,
+                split_scan_grid,
+                grid_combo_kernels,
+                start_graph,
+                end_graph,
+                cooperative_reduction_grid,
+            )
             """
         self.imports.splice(import_str, strip=True)
         if config.triton.autotune_at_compile_time:
@@ -836,7 +844,11 @@ class PythonWrapperCodegen(CodeGen):
             for arg in raw_args
         ]
         self.generate_kernel_call(
-            kernel_name, args, grid_fn=grid_fn, arg_types=arg_types, raw_args=raw_args
+            kernel_name,
+            args,
+            grid_fn=grid_fn,
+            arg_types=arg_types,
+            raw_args=raw_args,
         )
 
     def _generate_tma_descriptor_call(self, desc, apply_size_hints=False):
@@ -1551,7 +1563,7 @@ class PythonWrapperCodegen(CodeGen):
             self.writeline(line)
             self.writeline(self.make_zero_buffer(name))
         elif ws.zero_mode == WorkspaceZeroMode.ZERO_PER_GRAPH:
-            prior = V.graph.allocated_workspaces.get(name)
+            prior = self.allocated_workspaces.get(name)
             if prior:
                 assert isinstance(prior, AllocateLine)
                 # expand existing allocation
@@ -1559,7 +1571,7 @@ class PythonWrapperCodegen(CodeGen):
             else:
                 self.writeline(line)
                 self.writeline(self.make_zero_buffer(name))
-                V.graph.allocated_workspaces[name] = line
+                self.allocated_workspaces[name] = line
         else:
             raise AssertionError(ws.zero_mode)
 
@@ -1861,6 +1873,7 @@ class PythonWrapperCodegen(CodeGen):
             self.kernel_autotune_calls.writeline(
                 f"del {', '.join(arg for arg in tensor_args.values())}\n",
             )
+
             self.kernel_autotune_names.add(kernel_name)
 
     def writeline(self, line):
