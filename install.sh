@@ -11,4 +11,4 @@ export CXX=`which clang++`
 export MAX_JOBS=4
 
 # export CMAKE_PREFIX_PATH="${CONDA_PREFIX:-'$(dirname $(which conda))/../'}:${CMAKE_PREFIX_PATH}"
-python setup.py develop --cmake # regenerate cmake cache.
+python setup.py install --cmake # regenerate cmake cache.
